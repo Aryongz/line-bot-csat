@@ -32,31 +32,21 @@ def get_data(mode, target_id, month=None):
     
     try:
         driver.get("https://backoffice-csat.com7.in/portal")
-        # Login
         wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]"))).send_keys("22898")
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
         
         time.sleep(12)
         
-        # 1. จัดการเรื่องเดือน (ถ้ามีการระบุ)
-       # 1. จัดการเรื่องเดือน (แบบกด เริ่ม-จบ)
         if month:
             date_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".ant-picker")))
             driver.execute_script("arguments[0].click();", date_picker)
             time.sleep(2)
-            
-            # หาปุ่มเดือนเป้าหมาย (เช่น ม.ค.)
             month_btn = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[@class='ant-picker-cell-inner' and text()='{month}']")))
-            
-            # กดครั้งที่ 1: เลือกเดือนเริ่มต้น
-            driver.execute_script("arguments[0].click();", month_btn)
+            driver.execute_script("arguments[0].click();", month_btn) # คลิกเริ่ม
             time.sleep(1)
-            
-            # กดครั้งที่ 2: เลือกเดือนสิ้นสุด (กดที่เดิมซ้ำเลย)
-            driver.execute_script("arguments[0].click();", month_btn)
+            driver.execute_script("arguments[0].click();", month_btn) # คลิกจบ
             time.sleep(2)
 
-        # 2. ค้นหาสาขา
         search_branch = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ค้นหารหัสสาขา')]")))
         branch_to_search = str(target_id) if mode == "branch" else "251"
         search_branch.send_keys(branch_to_search)
@@ -68,7 +58,6 @@ def get_data(mode, target_id, month=None):
         time.sleep(10)
 
         if mode == "emp":
-            # ค้นหาพนักงานรายคน
             search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ant-select-selection-search-input")))
             driver.execute_script("arguments[0].click();", search_input)
             for char in str(target_id):
@@ -85,7 +74,6 @@ def get_data(mode, target_id, month=None):
             time.sleep(15)
 
         page_text = driver.find_element(By.TAG_NAME, "body").text
-        
         def get_val(label_text):
             try:
                 xpath = f"//*[contains(text(), '{label_text}')]/following::*[self::span or self::div][1]"
@@ -95,14 +83,12 @@ def get_data(mode, target_id, month=None):
         bills = get_val("จำนวนบิลทั้งหมด")
         answered = get_val("จำนวนการตอบแบบสอบถาม")
         target = get_val("เป้าหมาย")
-        
         rate = "0%"
         try:
             b = float(bills.replace(',', ''))
             a = float(answered.replace(',', ''))
             if b > 0: rate = f"{(a/b)*100:.2f}%"
         except: pass
-
         nps = "0"
         try:
             match = re.search(r'Promoters\D*?([0-9.]+)%', page_text, re.IGNORECASE)
@@ -115,7 +101,7 @@ def get_data(mode, target_id, month=None):
                 f"📉 อัตราการตอบ: {rate}\n✅ ตอบแล้ว: {answered} ครั้ง\n🎯 เป้าหมาย: {target} ครั้ง\n🧾 จำนวนบิล: {bills} บิล\n"
                 f"⭐ คะแนน NPS: {nps}\n━━━━━━━━━━━━━━━")
     except Exception as e:
-        return f"❌ ไม่พบข้อมูล: {target_id} หรือระบุเดือนผิด"
+        return f"❌ ไม่พบข้อมูล: {target_id} (โปรดตรวจสอบรหัสสาขาหรือชื่อเดือน)"
     finally:
         driver.quit()
 
@@ -130,32 +116,27 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     msg = event.message.text.replace(" ", "")
-    
-    # เช็กว่าข้อความมาจากกลุ่มหรือแชทส่วนตัว เพื่อส่งกลับให้ถูกที่
     if event.source.type == 'group':
-        reply_target = event.source.group_id
+        target_id = event.source.group_id
     else:
-        reply_target = event.source.user_id
+        target_id = event.source.user_id
 
-    # ดึงเดือนจากข้อความ (ถ้ามี)
     month_match = re.search(r'เดือน([ก-ฮ]\.[ค-ศ]\.)', msg)
     target_month = month_match.group(1) if month_match else None
     
     if "รายงานสาขา" in msg:
-        branch_id = re.search(r'รายงานสาขา(\d+)', msg).group(1)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 กำลังรวบรวมสรุปยอดสาขา {branch_id}..."))
-        # เปลี่ยนจาก user_id เป็น reply_target
-        line_bot_api.push_message(reply_target, TextSendMessage(text=get_data("branch", branch_id, target_month)))
-        
+        try:
+            branch_id = re.search(r'รายงานสาขา(\d+)', msg).group(1)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 กำลังรวบรวมสรุปยอดสาขา {branch_id}..."))
+            line_bot_api.push_message(target_id, TextSendMessage(text=get_data("branch", branch_id, target_month)))
+        except: pass
     elif "รายงาน" in msg:
         try:
             emp_id = re.search(r'รายงาน(\d+)', msg).group(1)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔎 กำลังดึงข้อมูลพนักงาน {emp_id}..."))
-            # เปลี่ยนจาก user_id เป็น reply_target
-            line_bot_api.push_message(reply_target, TextSendMessage(text=get_data("emp", emp_id, target_month)))
-        except:
-            pass
+            line_bot_api.push_message(target_id, TextSendMessage(text=get_data("emp", emp_id, target_month)))
+        except: pass
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
