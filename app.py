@@ -18,44 +18,71 @@ token = 'Oy/LhqxJTW2IiWK3VZ7CTTw1qXdhr6yCWWeLqVciAes0UcXhC9wzVIGDBDA9Lt8vkfEPpsl
 line_bot_api = LineBotApi(token)
 handler = WebhookHandler('c02971df123b7ac293031ca8a6a9d3c0')
 
-def get_employee_report(emp_id):
+def get_data(mode, target_id, month=None):
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # เพิ่ม User-Agent ให้เหมือนคนจริงๆ ใช้เครื่อง Mac
-    options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
     
     driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 60) # เพิ่มเวลารอเป็น 60 วินาที
+    wait = WebDriverWait(driver, 60)
     
     try:
         driver.get("https://backoffice-csat.com7.in/portal")
-        user_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]")))
-        user_field.send_keys("22898")
-        pass_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]")))
-        pass_field.send_keys("K@lf491883046" + Keys.ENTER)
+        # Login
+        wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]"))).send_keys("22898")
+        driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
         
-        time.sleep(15) # รอหน้าแรกโหลดนานขึ้นนิดนึงบน Server
+        time.sleep(12)
         
+        # 1. จัดการเรื่องเดือน (ถ้ามีการระบุ)
+       # 1. จัดการเรื่องเดือน (แบบกด เริ่ม-จบ)
+        if month:
+            date_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".ant-picker")))
+            driver.execute_script("arguments[0].click();", date_picker)
+            time.sleep(2)
+            
+            # หาปุ่มเดือนเป้าหมาย (เช่น ม.ค.)
+            month_btn = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[@class='ant-picker-cell-inner' and text()='{month}']")))
+            
+            # กดครั้งที่ 1: เลือกเดือนเริ่มต้น
+            driver.execute_script("arguments[0].click();", month_btn)
+            time.sleep(1)
+            
+            # กดครั้งที่ 2: เลือกเดือนสิ้นสุด (กดที่เดิมซ้ำเลย)
+            driver.execute_script("arguments[0].click();", month_btn)
+            time.sleep(2)
+
+        # 2. ค้นหาสาขา
+        search_branch = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ค้นหารหัสสาขา')]")))
+        branch_to_search = str(target_id) if mode == "branch" else "251"
+        search_branch.send_keys(branch_to_search)
+        driver.find_element(By.XPATH, "//button[contains(.,'ค้นหา')]").click()
+        time.sleep(7)
+
         detail_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(.,'รายละเอียด')]")))
         driver.execute_script("arguments[0].click();", detail_btn)
         time.sleep(10)
 
-        search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ant-select-selection-search-input")))
-        driver.execute_script("arguments[0].click();", search_input)
-        for char in str(emp_id):
-            search_input.send_keys(char)
-            time.sleep(0.3) # พิมพ์ช้าลงนิดนึงให้ระบบหาเจอ
-        
-        time.sleep(7) 
-        suggestion = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'ant-select-item-option-content') and contains(., '{emp_id}')]")))
-        full_name = suggestion.text.strip()
-        driver.execute_script("arguments[0].click();", suggestion)
-        
-        time.sleep(20) # รอหน้าแสดงผล NPS โหลด (หัวใจสำคัญ)
+        if mode == "emp":
+            # ค้นหาพนักงานรายคน
+            search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ant-select-selection-search-input")))
+            driver.execute_script("arguments[0].click();", search_input)
+            for char in str(target_id):
+                search_input.send_keys(char)
+                time.sleep(0.2)
+            time.sleep(6)
+            suggestion = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'ant-select-item-option-content') and contains(., '{target_id}')]")))
+            header_name = suggestion.text.strip()
+            driver.execute_script("arguments[0].click();", suggestion)
+            time.sleep(18)
+        else:
+            header_name = f"สรุปภาพรวมสาขา {target_id}"
+            if month: header_name += f" (เดือน {month})"
+            time.sleep(15)
 
         page_text = driver.find_element(By.TAG_NAME, "body").text
         
@@ -68,8 +95,7 @@ def get_employee_report(emp_id):
         bills = get_val("จำนวนบิลทั้งหมด")
         answered = get_val("จำนวนการตอบแบบสอบถาม")
         target = get_val("เป้าหมาย")
-
-        # คำนวณอัตราตอบ
+        
         rate = "0%"
         try:
             b = float(bills.replace(',', ''))
@@ -77,7 +103,6 @@ def get_employee_report(emp_id):
             if b > 0: rate = f"{(a/b)*100:.2f}%"
         except: pass
 
-        # สแกนหา NPS
         nps = "0"
         try:
             match = re.search(r'Promoters\D*?([0-9.]+)%', page_text, re.IGNORECASE)
@@ -86,11 +111,11 @@ def get_employee_report(emp_id):
                 nps = driver.find_element(By.XPATH, "//*[contains(text(), 'Promoters')]/following::*[contains(text(), '%')][1]").text.split('(')[0].replace('%','').strip()
         except: pass
 
-        return (f"👤 รายงานผลงานพนักงาน\n━━━━━━━━━━━━━━━\n🆔 รหัส: {emp_id}\n📛 ชื่อ: {full_name}\n━━━━━━━━━━━━━━━\n"
+        return (f"📊 {header_name}\n━━━━━━━━━━━━━━━\n"
                 f"📉 อัตราการตอบ: {rate}\n✅ ตอบแล้ว: {answered} ครั้ง\n🎯 เป้าหมาย: {target} ครั้ง\n🧾 จำนวนบิล: {bills} บิล\n"
                 f"⭐ คะแนน NPS: {nps}\n━━━━━━━━━━━━━━━")
     except Exception as e:
-        return f"❌ เกิดข้อผิดพลาดในการดึงข้อมูล (รหัส {emp_id})"
+        return f"❌ ไม่พบข้อมูล: {target_id} หรือระบุเดือนผิด"
     finally:
         driver.quit()
 
@@ -104,12 +129,20 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    msg = event.message.text
-    if "รายงาน" in msg:
-        emp_id = msg.replace("รายงาน", "").strip()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"กำลังดึงข้อมูลรหัส {emp_id} จาก Server... (อาจใช้เวลา 1-2 นาทีครับ)"))
-        result = get_employee_report(emp_id)
-        line_bot_api.push_message(event.source.user_id, TextSendMessage(text=result))
+    msg = event.message.text.replace(" ", "") # ลบช่องว่างออกเพื่อให้อ่านง่าย
+    
+    # ดึงเดือนจากข้อความ (ถ้ามี) เช่น เดือนม.ค.
+    month_match = re.search(r'เดือน([ก-ฮ]\.[ค-ศ]\.)', msg)
+    target_month = month_match.group(1) if month_match else None
+    
+    if "รายงานสาขา" in msg:
+        branch_id = re.search(r'รายงานสาขา(\d+)', msg).group(1)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 กำลังรวบรวมสรุปยอดสาขา {branch_id}..."))
+        line_bot_api.push_message(event.source.user_id, TextSendMessage(text=get_data("branch", branch_id, target_month)))
+    elif "รายงาน" in msg:
+        emp_id = re.search(r'รายงาน(\d+)', msg).group(1)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔎 กำลังดึงข้อมูลพนักงาน {emp_id}..."))
+        line_bot_api.push_message(event.source.user_id, TextSendMessage(text=get_data("emp", emp_id, target_month)))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
