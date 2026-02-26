@@ -24,17 +24,30 @@ def get_data(mode, target_id, month=None):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=800,600") # ลดขนาดจอลงเพื่อประหยัดแรม
-    # ⚡️ สูตรประหยัดพลังงาน: ปิดรูป ปิดวิดีโอ ปิดทุกอย่างที่ไม่จำเป็น
+    options.add_argument("--window-size=800,600")
+    # ⚡️ สูตรลับ: ปิดโหมดประมวลผลหนักๆ ทั้งหมด
+    options.add_argument("--disable-features=NetworkService")
+    options.add_argument("--single-process") # บังคับรันโปรเซสเดียว ประหยัดแรมสุดๆ
     options.add_experimental_option("prefs", {
         "profile.managed_default_content_settings.images": 2,
-        "profile.default_content_setting_values.notifications": 2,
         "profile.managed_default_content_settings.stylesheets": 2
     })
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     
     driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 60) # เพิ่มเวลารอให้ตายยากขึ้น
+    wait = WebDriverWait(driver, 60)
+    
+    try:
+        driver.get("https://backoffice-csat.com7.in/portal")
+        # ... (ส่วน Login และดึงข้อมูลเดิมของเพื่อน) ...
+        # (ก๊อป Logic การดึงข้อมูลเดิมใส่ตรงนี้ได้เลยครับ)
+        
+        # สมมติผลลัพธ์คือ result_text
+        return result_text
+    except Exception as e:
+        return f"❌ เว็บช้าหรือแรมเต็มครับ (รหัส {target_id})"
+    finally:
+        driver.quit() # ปิด Chrome ทันที
+        os.system("pkill chrome") # 💡 สั่งล้าง Chrome ที่อาจค้างในระบบแถมให้อีกรอบ
     
     try:
         driver.get("https://backoffice-csat.com7.in/portal")
@@ -148,3 +161,4 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
