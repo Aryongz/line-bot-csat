@@ -116,27 +116,42 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     msg = event.message.text.replace(" ", "")
+    
+    # 💡 ปรับใหม่: ดึง ID ที่ต้องส่งกลับให้ชัวร์ที่สุด
     if event.source.type == 'group':
-        target_id = event.source.group_id
+        reply_target = event.source.group_id
+    elif event.source.type == 'room':
+        reply_target = event.source.room_id
     else:
-        target_id = event.source.user_id
+        reply_target = event.source.user_id
 
+    # ดึงเดือนจากข้อความ
     month_match = re.search(r'เดือน([ก-ฮ]\.[ค-ศ]\.)', msg)
     target_month = month_match.group(1) if month_match else None
     
     if "รายงานสาขา" in msg:
         try:
             branch_id = re.search(r'รายงานสาขา(\d+)', msg).group(1)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 กำลังรวบรวมสรุปยอดสาขา {branch_id}..."))
-            line_bot_api.push_message(target_id, TextSendMessage(text=get_data("branch", branch_id, target_month)))
-        except: pass
+            # ใช้ Reply Token ตอบก่อนเพื่อไม่ให้ LINE ตัดการเชื่อมต่อ
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 รับทราบครับ! กำลังดึงสรุปสาขา {branch_id}..."))
+            
+            # ดึงข้อมูลแล้ว Push กลับไปที่กลุ่ม/แชท
+            result = get_data("branch", branch_id, target_month)
+            line_bot_api.push_message(reply_target, TextSendMessage(text=result))
+        except Exception as e:
+            print(f"Error Branch: {e}")
+            
     elif "รายงาน" in msg:
         try:
             emp_id = re.search(r'รายงาน(\d+)', msg).group(1)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔎 กำลังดึงข้อมูลพนักงาน {emp_id}..."))
-            line_bot_api.push_message(target_id, TextSendMessage(text=get_data("emp", emp_id, target_month)))
-        except: pass
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔎 รับทราบครับ! กำลังดึงข้อมูลพนักงาน {emp_id}..."))
+            
+            result = get_data("emp", emp_id, target_month)
+            line_bot_api.push_message(reply_target, TextSendMessage(text=result))
+        except Exception as e:
+            print(f"Error Emp: {e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
