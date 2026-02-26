@@ -1,6 +1,7 @@
 import time
 import re
 import os
+import gc # ระบบเคลียร์หน่วยความจำ
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -24,44 +25,29 @@ def get_data(mode, target_id, month=None):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=640,480") # จอเล็กสุดๆ ประหยัดแรม
-    # ⚡️ ท่าไม้ตายประหยัดแรม: บังคับรันแค่ Process เดียวและปิดส่วนเกินทั้งหมด
-    options.add_argument("--single-process") 
-    options.add_argument("--disable-features=NetworkService")
+    options.add_argument("--window-size=640,480") # จอเล็กช่วยลดการใช้แรม
+    # ⚡️ สูตรประหยัดแรมขั้นสุดสำหรับ Server ฟรี
+    options.add_argument("--single-process")
+    options.add_argument("--disable-application-cache")
     options.add_experimental_option("prefs", {
-        "profile.managed_default_content_settings.images": 2, # ปิดรูป
-        "profile.managed_default_content_settings.stylesheets": 2, # ปิด CSS
-        "profile.managed_default_content_settings.fonts": 2 # ปิด Font
+        "profile.managed_default_content_settings.images": 2,
+        "profile.managed_default_content_settings.stylesheets": 2,
+        "profile.managed_default_content_settings.fonts": 2
     })
     
-    driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 45) # ลดเวลารอให้กระชับขึ้น
-    
+    driver = None
     try:
-        driver.get("https://backoffice-csat.com7.in/portal")
-        # --- (ส่วน Login เดิมของเพื่อน) ---
-        user_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]")))
-        user_field.send_keys("22898")
-        driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
+        driver = webdriver.Chrome(options=options)
+        wait = WebDriverWait(driver, 60)
         
-        time.sleep(7)
-        # --- (Logic การดึงข้อมูลเดิมที่ผมเคยเขียนให้) ---
-        # ... ก๊อปส่วนดึงข้อมูลเดิมมาใส่ตรงนี้ ...
-
-        return result_text # ผลลัพธ์ที่จะส่งคืน
-    except Exception as e:
-        return f"❌ เว็บช้าหรือแรมเต็ม (รหัส {target_id})"
-    finally:
-        driver.quit() # ปิด Chrome
-        os.system("pkill -f chrome") # 🧹 ล้างขยะ Chrome ที่ค้างในระบบออกให้หมด
-    
-    try:
         driver.get("https://backoffice-csat.com7.in/portal")
+        # Login
         wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]"))).send_keys("22898")
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
         
         time.sleep(10)
         
+        # เลือกเดือน (ถ้ามี)
         if month:
             date_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".ant-picker")))
             driver.execute_script("arguments[0].click();", date_picker)
@@ -72,9 +58,9 @@ def get_data(mode, target_id, month=None):
             driver.execute_script("arguments[0].click();", month_btn)
             time.sleep(2)
 
+        # ค้นหาสาขา
         search_branch = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ค้นหารหัสสาขา')]")))
-        branch_to_search = str(target_id) if mode == "branch" else "251"
-        search_branch.send_keys(branch_to_search)
+        search_branch.send_keys(str(target_id) if mode == "branch" else "251")
         driver.find_element(By.XPATH, "//button[contains(.,'ค้นหา')]").click()
         time.sleep(5)
 
@@ -125,9 +111,13 @@ def get_data(mode, target_id, month=None):
                 f"📉 อัตราการตอบ: {rate}\n✅ ตอบแล้ว: {answered} ครั้ง\n🎯 เป้าหมาย: {target} ครั้ง\n🧾 จำนวนบิล: {bills} บิล\n"
                 f"⭐ คะแนน NPS: {nps}\n━━━━━━━━━━━━━━━")
     except Exception as e:
-        return f"❌ เกิดข้อผิดพลาด (อาจเป็นที่เว็บช้าหรือแรมเต็มครับ) รหัส: {target_id}"
+        return f"❌ ขออภัยครับน๊อตตี้ ระบบอาจจะช้าหรือแรมเต็ม ลองพิมพ์ใหม่ดูอีกทีนะครับ (รหัส {target_id})"
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
+        # 🧹 ล้างขยะในระบบทิ้งทันที
+        os.system("pkill -f chrome")
+        gc.collect()
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -140,13 +130,7 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     msg = event.message.text.replace(" ", "")
-    # 💡 จุดสำคัญ: เลือกส่งกลับตาม Source (กลุ่ม หรือ ส่วนตัว)
-    if event.source.type == 'group':
-        target_id = event.source.group_id
-    elif event.source.type == 'room':
-        target_id = event.source.room_id
-    else:
-        target_id = event.source.user_id
+    target_id = event.source.group_id if event.source.type == 'group' else event.source.user_id
 
     month_match = re.search(r'เดือน([ก-ฮ]\.[ค-ศ]\.)', msg)
     target_month = month_match.group(1) if month_match else None
@@ -154,18 +138,16 @@ def handle_message(event):
     if "รายงานสาขา" in msg:
         try:
             branch_id = re.search(r'รายงานสาขา(\d+)', msg).group(1)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 รับทราบครับน๊อตตี้! กำลังดึงสรุปสาขา {branch_id}..."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🏢 รับทราบครับ! กำลังดึงสรุปสาขา {branch_id}..."))
             line_bot_api.push_message(target_id, TextSendMessage(text=get_data("branch", branch_id, target_month)))
         except: pass
     elif "รายงาน" in msg:
         try:
             emp_id = re.search(r'รายงาน(\d+)', msg).group(1)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔎 รับทราบครับน๊อตตี้! กำลังดึงข้อมูลพนักงาน {emp_id}..."))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🔎 รับทราบครับ! กำลังดึงข้อมูลพนักงาน {emp_id}..."))
             line_bot_api.push_message(target_id, TextSendMessage(text=get_data("emp", emp_id, target_month)))
         except: pass
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-
