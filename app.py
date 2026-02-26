@@ -26,42 +26,40 @@ def get_data(mode, target_id, month=None):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=800,600")
-    # ⚡️ สูตรประหยัดแรม
-    options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
-    options.add_argument("--single-process")
+    options.add_argument("--window-size=1280,720")
+    # ⚡️ ปิดการโหลดรูปภาพและ CSS เพื่อให้เว็บเบาที่สุด
+    options.add_experimental_option("prefs", {
+        "profile.managed_default_content_settings.images": 2,
+        "profile.managed_default_content_settings.stylesheets": 2
+    })
     
     driver = None
     try:
         driver = webdriver.Chrome(options=options)
-        wait = WebDriverWait(driver, 60)
+        wait = WebDriverWait(driver, 45) # ลดเวลารอให้ไม่เกินที่ Render กำหนด
+        
         driver.get("https://backoffice-csat.com7.in/portal")
         
-        # Login
+        # 1. Login
         wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]"))).send_keys("22898")
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
         
-        time.sleep(10)
+        time.sleep(10) # รอหน้าเว็บโหลด
         
-        if month:
-            date_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".ant-picker")))
-            driver.execute_script("arguments[0].click();", date_picker)
-            time.sleep(2)
-            month_btn = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[@class='ant-picker-cell-inner' and text()='{month}']")))
-            driver.execute_script("arguments[0].click();", month_btn)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", month_btn)
-            time.sleep(2)
-
+        # 2. ค้นหาสาขา
         search_branch = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ค้นหารหัสสาขา')]")))
-        search_branch.send_keys(str(target_id) if mode == "branch" else "251")
+        # บังคับรหัสพนักงานให้เป็นสาขา 251 เสมอ (ตามข้อมูลที่เคยระบุไว้)
+        branch_to_search = str(target_id) if mode == "branch" else "251"
+        search_branch.send_keys(branch_to_search)
         driver.find_element(By.XPATH, "//button[contains(.,'ค้นหา')]").click()
         time.sleep(5)
 
+        # 3. กดรายละเอียด
         detail_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(.,'รายละเอียด')]")))
         driver.execute_script("arguments[0].click();", detail_btn)
         time.sleep(10)
 
+        # 4. ถ้าหาพนักงาน
         if mode == "emp":
             search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ant-select-selection-search-input")))
             driver.execute_script("arguments[0].click();", search_input)
@@ -72,12 +70,12 @@ def get_data(mode, target_id, month=None):
             suggestion = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'ant-select-item-option-content') and contains(., '{target_id}')]")))
             header_name = suggestion.text.strip()
             driver.execute_script("arguments[0].click();", suggestion)
-            time.sleep(15)
+            time.sleep(12)
         else:
             header_name = f"สรุปภาพรวมสาขา {target_id}"
-            if month: header_name += f" (เดือน {month})"
-            time.sleep(12)
+            time.sleep(10)
 
+        # 5. ดึงข้อมูล
         page_text = driver.find_element(By.TAG_NAME, "body").text
         def get_val(label_text):
             try:
@@ -88,28 +86,25 @@ def get_data(mode, target_id, month=None):
         bills = get_val("จำนวนบิลทั้งหมด")
         answered = get_val("จำนวนการตอบแบบสอบถาม")
         target = get_val("เป้าหมาย")
+        
+        # คำนวณอัตราตอบ
         rate = "0%"
         try:
             b = float(bills.replace(',', ''))
             a = float(answered.replace(',', ''))
             if b > 0: rate = f"{(a/b)*100:.2f}%"
         except: pass
-        
-        nps = "0"
-        try:
-            match = re.search(r'Promoters\D*?([0-9.]+)%', page_text, re.IGNORECASE)
-            nps = match.group(1) if match else "0"
-        except: pass
 
         return (f"📊 {header_name}\n━━━━━━━━━━━━━━━\n"
                 f"📉 อัตราการตอบ: {rate}\n✅ ตอบแล้ว: {answered} ครั้ง\n🎯 เป้าหมาย: {target} ครั้ง\n🧾 จำนวนบิล: {bills} บิล\n"
-                f"⭐ คะแนน NPS: {nps}\n━━━━━━━━━━━━━━━")
+                f"━━━━━━━━━━━━━━━")
     except Exception as e:
-        return f"❌ ระบบขัดข้อง (แรมอาจจะเต็ม) ลองใหม่นะครับน๊อตตี้"
+        # ถ้าพัง ให้คืนค่า Error เพื่อให้เราดูใน LINE ได้ว่าพังตรงไหน
+        return f"❌ ไม่พบข้อมูลพนักงาน/สาขา หรือเว็บโหลดช้าเกินไปครับน๊อตตี้"
     finally:
-        if driver: driver.quit()
+        if driver:
+            driver.quit()
         os.system("pkill -f chrome")
-        gc.collect()
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -152,3 +147,4 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
