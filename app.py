@@ -1,7 +1,7 @@
 import time
 import re
 import os
-import gc # ระบบเคลียร์หน่วยความจำ
+import gc
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -15,6 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 app = Flask(__name__)
 
+# 🔑 เช็ก Token และ Secret ให้ชัวร์ (ห้ามมีช่องว่างเกิน)
 token = 'Oy/LhqxJTW2IiWK3VZ7CTTw1qXdhr6yCWWeLqVciAes0UcXhC9wzVIGDBDA9Lt8vkfEPpsl/+zn7twLyr4CYiabYo9qai6pYiIH7VJQGUOpRLgO+XYhE7+A+M655p4Z7GmpRWCBpQEL0jMskSg13JgdB04t89/1O/w1cDnyilFU='
 line_bot_api = LineBotApi(token)
 handler = WebhookHandler('c02971df123b7ac293031ca8a6a9d3c0')
@@ -25,29 +26,23 @@ def get_data(mode, target_id, month=None):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=640,480") # จอเล็กช่วยลดการใช้แรม
-    # ⚡️ สูตรประหยัดแรมขั้นสุดสำหรับ Server ฟรี
+    options.add_argument("--window-size=800,600")
+    # ⚡️ สูตรประหยัดแรม
+    options.add_experimental_option("prefs", {"profile.managed_default_content_settings.images": 2})
     options.add_argument("--single-process")
-    options.add_argument("--disable-application-cache")
-    options.add_experimental_option("prefs", {
-        "profile.managed_default_content_settings.images": 2,
-        "profile.managed_default_content_settings.stylesheets": 2,
-        "profile.managed_default_content_settings.fonts": 2
-    })
     
     driver = None
     try:
         driver = webdriver.Chrome(options=options)
         wait = WebDriverWait(driver, 60)
-        
         driver.get("https://backoffice-csat.com7.in/portal")
+        
         # Login
         wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]"))).send_keys("22898")
         driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
         
         time.sleep(10)
         
-        # เลือกเดือน (ถ้ามี)
         if month:
             date_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".ant-picker")))
             driver.execute_script("arguments[0].click();", date_picker)
@@ -58,7 +53,6 @@ def get_data(mode, target_id, month=None):
             driver.execute_script("arguments[0].click();", month_btn)
             time.sleep(2)
 
-        # ค้นหาสาขา
         search_branch = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ค้นหารหัสสาขา')]")))
         search_branch.send_keys(str(target_id) if mode == "branch" else "251")
         driver.find_element(By.XPATH, "//button[contains(.,'ค้นหา')]").click()
@@ -111,11 +105,9 @@ def get_data(mode, target_id, month=None):
                 f"📉 อัตราการตอบ: {rate}\n✅ ตอบแล้ว: {answered} ครั้ง\n🎯 เป้าหมาย: {target} ครั้ง\n🧾 จำนวนบิล: {bills} บิล\n"
                 f"⭐ คะแนน NPS: {nps}\n━━━━━━━━━━━━━━━")
     except Exception as e:
-        return f"❌ ขออภัยครับน๊อตตี้ ระบบอาจจะช้าหรือแรมเต็ม ลองพิมพ์ใหม่ดูอีกทีนะครับ (รหัส {target_id})"
+        return f"❌ ระบบขัดข้อง (แรมอาจจะเต็ม) ลองใหม่นะครับน๊อตตี้"
     finally:
-        if driver:
-            driver.quit()
-        # 🧹 ล้างขยะในระบบทิ้งทันที
+        if driver: driver.quit()
         os.system("pkill -f chrome")
         gc.collect()
 
@@ -123,14 +115,23 @@ def get_data(mode, target_id, month=None):
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-    try: handler.handle(body, signature)
-    except InvalidSignatureError: abort(400)
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
     return 'OK'
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     msg = event.message.text.replace(" ", "")
+    
+    # 💡 ระบบเช็กชื่อกลุ่ม/ส่วนตัว
     target_id = event.source.group_id if event.source.type == 'group' else event.source.user_id
+
+    # ✅ ด่านทดสอบ 1: พิมพ์ Test ต้องตอบ
+    if msg.lower() == "test":
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="บอทยังมีชีวิตอยู่ครับน๊อตตี้! ลองเรียกรายงานดูได้เลย"))
+        return
 
     month_match = re.search(r'เดือน([ก-ฮ]\.[ค-ศ]\.)', msg)
     target_month = month_match.group(1) if month_match else None
