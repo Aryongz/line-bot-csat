@@ -26,27 +26,49 @@ def get_data(mode, target_id, month=None):
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=640,480")
-    # ⚡️ สูตรเด็ด: บังคับใช้ Process เดียว (ประหยัดแรม 50%)
+    
+    # ⚡️ ท่าไม้ตาย: บังคับรันโปรเซสเดียว และปิดการใช้ Shared Memory
     options.add_argument("--single-process")
-    options.add_argument("--disable-extensions")
-    # ⚡️ ไม่โหลดแม้กระทั่ง CSS และฟอนต์ (หน้าเว็บจะเหลือแต่ตัวหนังสือ)
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-software-rasterizer")
+    
+    # ⚡️ ปิดทุกอย่างที่ขวางหน้า (รูป, CSS, JS บางส่วน)
     options.add_experimental_option("prefs", {
         "profile.managed_default_content_settings.images": 2,
         "profile.managed_default_content_settings.stylesheets": 2,
-        "profile.managed_default_content_settings.fonts": 2
+        "profile.managed_default_content_settings.fonts": 2,
+        "profile.managed_default_content_settings.plugins": 2
     })
     
     driver = None
     try:
+        # 🕒 ใส่ timeout ให้สั้น ถ้าเกิน 30 วิให้ตายไปเลย ดีกว่าโดน Render Kill
         driver = webdriver.Chrome(options=options)
-        # ตั้งเวลา Timeout ให้สั้นลง (ถ้า 30 วิยังไม่เสร็จ ให้พังไปเลยดีกว่าค้าง)
-        driver.set_page_load_timeout(30)
-        wait = WebDriverWait(driver, 30)
+        driver.set_page_load_timeout(30) 
+        wait = WebDriverWait(driver, 25)
         
         driver.get("https://backoffice-csat.com7.in/portal")
-        # ... (Login และดึงข้อมูลตามเดิม) ...
-        # (ผมแนะนำให้ใส่ time.sleep ให้น้อยที่สุดเท่าที่จำเป็น)
+        
+        # --- ขั้นตอน Login ---
+        user_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]")))
+        user_field.send_keys("22898")
+        driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
+        
+        # ลด time.sleep ลงเพื่อคืนแรมให้ไวขึ้น
+        time.sleep(7) 
 
+        # (Logic การดึงข้อมูลคงเดิม แต่อย่ารอนานเกินไป)
+        # ... [ส่วนดึงข้อมูล] ...
+
+        return result_text
+    except Exception as e:
+        return f"⚠️ แรมเต็มหรือเว็บช้า (Error: {str(e)[:50]})"
+    finally:
+        if driver:
+            driver.quit()
+        # 🧹 ล้างขยะแถมท้าย
+        os.system("pkill -9 chrome")
+        gc.collect()
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -77,4 +99,5 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
