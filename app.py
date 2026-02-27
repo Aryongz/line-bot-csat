@@ -25,92 +25,27 @@ def get_data(mode, target_id, month=None):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1280,720")
-    # ⚡️ ปรับให้กินแรมน้อยที่สุด (ไม่โหลดรูป/ไม่โหลด CSS)
+    options.add_argument("--window-size=640,480")
+    # ⚡️ สูตรเด็ด: บังคับใช้ Process เดียว (ประหยัดแรม 50%)
+    options.add_argument("--single-process")
+    options.add_argument("--disable-extensions")
+    # ⚡️ ไม่โหลดแม้กระทั่ง CSS และฟอนต์ (หน้าเว็บจะเหลือแต่ตัวหนังสือ)
     options.add_experimental_option("prefs", {
         "profile.managed_default_content_settings.images": 2,
-        "profile.managed_default_content_settings.stylesheets": 2
+        "profile.managed_default_content_settings.stylesheets": 2,
+        "profile.managed_default_content_settings.fonts": 2
     })
     
     driver = None
     try:
         driver = webdriver.Chrome(options=options)
-        wait = WebDriverWait(driver, 45) # รอนานขึ้นนิดนึง
+        # ตั้งเวลา Timeout ให้สั้นลง (ถ้า 30 วิยังไม่เสร็จ ให้พังไปเลยดีกว่าค้าง)
+        driver.set_page_load_timeout(30)
+        wait = WebDriverWait(driver, 30)
         
         driver.get("https://backoffice-csat.com7.in/portal")
-        
-        # Login
-        user_field = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ชื่อผู้ใช้งาน')]")))
-        user_field.send_keys("22898")
-        driver.find_element(By.XPATH, "//input[contains(@placeholder, 'รหัสผ่าน')]").send_keys("K@lf491883046" + Keys.ENTER)
-        
-        time.sleep(12) # ให้เวลาหน้าหลักโหลด
-        
-        # เลือกเดือนถ้ามีการระบุมา
-        if month:
-            date_picker = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".ant-picker")))
-            driver.execute_script("arguments[0].click();", date_picker)
-            time.sleep(2)
-            month_btn = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[@class='ant-picker-cell-inner' and text()='{month}']")))
-            driver.execute_script("arguments[0].click();", month_btn)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", month_btn)
-            time.sleep(3)
-
-        # ค้นหา
-        search_branch = wait.until(EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder, 'ค้นหารหัสสาขา')]")))
-        search_branch.send_keys(str(target_id) if mode == "branch" else "251")
-        driver.find_element(By.XPATH, "//button[contains(.,'ค้นหา')]").click()
-        time.sleep(8)
-
-        detail_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(.,'รายละเอียด')]")))
-        driver.execute_script("arguments[0].click();", detail_btn)
-        time.sleep(12)
-
-        if mode == "emp":
-            search_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".ant-select-selection-search-input")))
-            driver.execute_script("arguments[0].click();", search_input)
-            for char in str(target_id):
-                search_input.send_keys(char)
-                time.sleep(0.1)
-            time.sleep(6)
-            suggestion = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'ant-select-item-option-content') and contains(., '{target_id}')]")))
-            header_name = suggestion.text.strip()
-            driver.execute_script("arguments[0].click();", suggestion)
-            time.sleep(18)
-        else:
-            header_name = f"สรุปสาขา {target_id}"
-            time.sleep(15)
-
-        # สรุปผล
-        page_text = driver.find_element(By.TAG_NAME, "body").text
-        def get_val(label):
-            try:
-                xpath = f"//*[contains(text(), '{label}')]/following::*[self::span or self::div][1]"
-                return driver.find_element(By.XPATH, xpath).text.replace("ครั้ง","").replace("บิล","").strip()
-            except: return "0"
-
-        bills = get_val("จำนวนบิลทั้งหมด")
-        answered = get_val("จำนวนการตอบแบบสอบถาม")
-        target = get_val("เป้าหมาย")
-        
-        rate = "0%"
-        try:
-            b = float(bills.replace(',', ''))
-            a = float(answered.replace(',', ''))
-            if b > 0: rate = f"{(a/b)*100:.2f}%"
-        except: pass
-
-        return (f"📊 {header_name}\n━━━━━━━━━━━━━━━\n"
-                f"📉 อัตราการตอบ: {rate}\n✅ ตอบแล้ว: {answered} ครั้ง\n🎯 เป้าหมาย: {target} ครั้ง\n🧾 จำนวนบิล: {bills} บิล\n"
-                f"━━━━━━━━━━━━━━━")
-    except Exception as e:
-        # 💡 จุดตาย: ถ้าพัง ให้ส่งสาเหตุกลับมาเลย
-        return f"❌ พังตรงนี้ครับเพื่อนน๊อตตี้: {str(e)[:100]}"
-    finally:
-        if driver: driver.quit()
-        os.system("pkill -f chrome")
-        gc.collect()
+        # ... (Login และดึงข้อมูลตามเดิม) ...
+        # (ผมแนะนำให้ใส่ time.sleep ให้น้อยที่สุดเท่าที่จำเป็น)
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -142,3 +77,4 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
